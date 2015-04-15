@@ -7,12 +7,12 @@ import exceptions
 import thread
 
 SER =None
+InstamsgConnected =False
 def start(args):
     instaMsg = None
     try:
         try:
-            options={'logLevel':instamsg.INSTAMSG_LOG_LEVEL_DEBUG, 'enableSsl':1}
-            instaMsg = instamsg.InstaMsg(config.ClientId, config.AuthKey, __onConnect, __onDisConnect, __oneToOneMessageHandler, options)
+            instaMsg=__Connect()
             while 1:
                 instaMsg.process()
                 SER.process()
@@ -23,15 +23,22 @@ def start(args):
         if(instaMsg):
             instaMsg.close()
             instaMsg = None
-    
+            
+def __Connect(): 
+    options={'logLevel':config.DEBUG_MODE, 'enableSsl':1}
+    return instamsg.InstaMsg(config.ClientId, config.AuthKey, __onConnect, __onDisConnect, __oneToOneMessageHandler, options)
+            
 def __onConnect(instaMsg):
-    global SER
+    global SER ,InstamsgConnected
+    InstamsgConnected =True
     if (config.DEBUG_MODE): print "Client connected to Instamsg"
     SER =Serial(instaMsg)
     
 def __onDisConnect():
+    global InstamsgConnected
+    InstamsgConnected =False
     print "Client disconnected."
-    
+#     __Connect()
       
 def __messageHandler(mqttMessage):
         if(mqttMessage):
@@ -39,13 +46,9 @@ def __messageHandler(mqttMessage):
         
 def __oneToOneMessageHandler(msg):
     if(msg):
-        print "One to One Message received %s" % msg.toString()
+        if (config.DEBUG_MODE): print "One to One Message received %s" % msg.toString()
         msgBytes = __unhexelify(msg.body())
-        Serial.write(msgBytes)
-        time.sleep(1)
-        read_val = Serial.read(1000)
-        if (config.DEBUG_MODE): print "Read data:%s" %str(read_val)
-#         msg.reply(__hexlify(read_val))
+        Serial.processCmd(msgBytes)
         
 def __unhexelify(data):
         a = []
@@ -92,12 +95,16 @@ class Serial:
         self.flowControl = self.__getFlowControl()
         self.port = self.__configurePort(settings)
         self.lock = thread.allocate_lock()
-        self.address ='abc'
+        self.address =config.ClientId
+        self.dataLogger = self.__setDataLogger()
+#         if (config.DEBUG_MODE):
+#                 debugLogger =self.__setDebugLogger()
 
     def process(self):
         dataList = []
         try:
             if self.port:
+                self.__publishLogData()
                 if (self.commandlist):
                     for cmd in self.commandlist:
                         try:
@@ -136,8 +143,8 @@ class Serial:
                 if(result.failed()):
                     print('Serial:: Unable to publish to client due to  [%s] '%str(result.cause()))
                 else: print('Serial::data publish to client   [%s] '%str(config.ClientId))
-        except:
-            if (config.DEBUG_MODE): print('Serial:: data publish to client [%s] '%str(config.ClientId))
+        except Exception, e:
+            if (config.DEBUG_MODE): print('Serial:: Unexpected error in processing publishhandler %s' %str(e))
             
     def read(self, size=1):
         if self.port is None: raise error('Port not open')
@@ -167,6 +174,7 @@ class Serial:
             self.port.close()
         except:
             pass # ignore errors here   
+        
     def pollPort(self, cmd, retry=1):
         for i in range(retry):
             try:
@@ -191,6 +199,20 @@ class Serial:
                     print("Serial Processor: Serial port error: " %(str(sys.exc_info()[0]), str(sys.exc_info()[1])))    
         return data
     
+    def __publishLogData(self):
+        try:
+            self.lock.acquire()
+            if(InstamsgConnected):
+                if(self.dataLogger and self.dataLogger.shouldUpload()):
+                    if (config.DEBUG_MODE):
+                        print("Sending log data to instamsg")
+                    self.__processDataLogs()
+        except:
+            if (config.DEBUG_MODE):
+                print("Unknown Error in process: %s %s" % (str(sys.exc_info()[0]), str(sys.exc_info()[1])))
+        finally:
+            self.lock.release()
+        
     def __configurePort(self,settings):
         try:
             if str(settings.get('baudrate')) not in self.BAUDRATES: raise ValueError("Not a valid baudrate: %s" % str(settings.get('baudrate')))
@@ -250,7 +272,6 @@ class Serial:
                     except:
                         print('%s Serial:: Unexpected error in publish. %s %s' % (self.name, str(sys.exc_info()[0]), str(sys.exc_info()[1])))
         except:
-            self.sockInit = 0
             pass
         finally:
             self.lock.release()
@@ -265,17 +286,47 @@ class Serial:
         if(log or log is None):
             data = '%08d' % (len(data)) + data
         try:
-            self.instamsg.publish('9533d950-c88b-11e4-bf22-bc764e102b63', data, 2, 0, self.publishhandler)
+            self.instamsg.publish(config.PubTopic, data, 2, 0, self.publishhandler)
             if (config.DEBUG_MODE):
-                print("%s Serial: TCP data sent: %s" % (self.name, data))
+                print("Serial: TCP data sent: %s" %data)
         except Exception, e:
             if(log and self.dataLogger):
                 self.dataLogger.write(data) 
                 if (config.DEBUG_MODE):
-                    print("%s Serial: TCP publisher data send failed. Logged it." % self.name)
+                    print("Serial: TCP publisher data send failed. Logged it.")
             raise Exception(str(e))
             
-        
+     
+    def __processDataLogs(self):
+        try:
+            if(self.dataLogger):
+                datalist = self.dataLogger.getRecords(10)
+                i = 0
+                if(datalist):
+                    for data in datalist:
+                        if ((data.find('<?xml version="1.0"?>') > 0)):
+                            if (config.DEBUG_MODE):
+                                print("Serial: Processing log data %s" %str(data))
+                            self.instamsg.publish(config.PubTopic, data, 2, 0, self.publishhandler)
+#                             if(not self.publish([[None, data.strip()]], None, 0)):
+#                                 break
+                        i = i + 1
+                else:
+                    if (config.DEBUG_MODE):
+                        print("Serial: No data logs to process..." )            
+                if(i > 0):
+                    if (config.DEBUG_MODE):
+                        print(" Serial: %d data logs sent to server..." % i)
+                    resp = self.dataLogger.deleteRecords(i) 
+                    if (config.DEBUG_MODE):
+                        if(resp == 1):
+                            print("Serial: Deleted %d data logs sent to server." % i)
+                        else:
+                            print("Serial: Error deleting %d data logs sent to server." % i)
+        except:
+            if (config.DEBUG_MODE):
+                print(':: Unexpected error in processing data logs. %s %s' % (str(sys.exc_info()[0]), str(sys.exc_info()[1])))
+               
     def getTimeAndOffset(self):
         try:
             return (time.strftime("%Y%m%d") + "x" + time.strftime("%H%M%S%z")).split('+')
@@ -288,6 +339,226 @@ class Serial:
         for x in data:
             a.append("%02X" % (ord(x)))
         return ''.join(a)
+    
+    def __setDataLogger(self):
+        if(config.ENABLE_DATA_LOGGING):
+            if (config.DEBUG_MODE):
+                print('Raspberrypi:: Setting up data logger...')
+            mb=config.MAX_DATA_LOG_SIZE
+            if(mb > 256000 and mb < 1024):
+                mb=1024 
+            fh = FileHandler('data.log', maxBytes=mb,timeStamp=0, rotate=0)
+            return Logger(fh,int(config.DATA_LOG_UPLOAD_INTERVAL))
+    
+    def __setDebugLogger(self):
+        try:
+            if(config.LOG_TO =='FILE'):
+                mb=config.MAX_LOG_SIZE
+                if(mb > 256000 and mb < 1024):
+                    mb=1024  
+                handler = FileHandler('system.log', maxBytes=mb)   
+                debugLogger=sys.stdout = sys.stderr = Logger(handler)
+            elif(config.LOG_TO =='SER'):
+                handler = SerialHandler()   
+                debugLogger = sys.stdout = sys.stderr = Logger(handler)
+            return debugLogger
+        except:
+            if (config.DEBUG_MODE):
+                error = 'Raspberrypi:: : Unable to set debug logger. Continuing without it...'
+                if(config.LOG_TO =='SER'):
+                    print(error) 
+                else:self.__bootLogger(error)
+            
+    def __bootLogger(self,msg):
+#This works while the modules are being loaded
+        try:
+            f = open('error.log', 'ab')
+            f.write(msg + '\r\n')
+        finally:
+            f.close()
+            
+class Logger:
+    
+    def __init__(self,handler,uploadInterval=300):
+        self.handler = handler
+        self.uploadInterval=uploadInterval
+        self._nextUploadTime = time.time()
+        self.lock = thread.allocate_lock()
+    
+    def write(self,msg):
+        if(msg and msg not in ('\n', '\r\n')):
+            try:
+                self.lock.acquire()
+                self.handler.log(msg)
+            finally:
+                self.lock.release() 
+    
+    def cleanUp(self):
+        try:
+            self.lock.acquire()
+            self.handler.close()
+        except:
+            pass
+        finally:
+            self.lock.release()
+    
+    def getRecords(self,number,start=0):
+        try:
+            self.lock.acquire()
+            return self.handler.getRecords(number,start)
+        finally:
+            self.lock.release()
+    
+    def deleteRecords(self,number,start=0):
+        try:
+            self.lock.acquire()
+            return self.handler.deleteRecords(number,start)
+        finally:
+            self.lock.release()
+    
+    def shouldUpload(self):
+        t=time.time()
+        if(self._nextUploadTime - t < 0):
+            self._nextUploadTime = t + self.uploadInterval
+            return 1
+        return 0
+
+class SerialHandler:
+    def __init__(self):
+        SER.set_speed('115200','8N1')
+    
+    def log(self,msg):
+        SER.send(msg + '\r\n')
+        
+    def close(self):
+        pass
+    
+    def getRecords(self,number,start=0):
+        return []
+    
+    def deleteRecords(self,number,start=0):
+        return []
+    
+class FileHandler:
+    
+    def __init__(self, filename, maxBytes, timeStamp=1, rotate=1):
+        self.maxBytes = maxBytes
+        self.timeStamp = timeStamp
+        self.baseFilename = filename
+        self.rotate=rotate
+        self.mode ='ab'
+        self.file = None
+        
+    def log(self,msg):
+        try:
+            if self.file is None:
+                self.__open(self.mode)
+            if(self.timeStamp):
+                msg= "%s- %s\r\n" %(self.asctime(),msg)
+            else:
+                msg= "%s\r\n" %(msg)
+            if self.__shouldRollover(msg):
+                if(self.rotate):
+                    self.__doRollover()
+                else:
+                    self.__doFifoRollover(msg)
+            if(self.file):
+                self.file.write(msg)
+                self.file.flush()
+        except IOError:
+            if(self.file):
+                self.close()
+                self.file = None
+        except:
+            pass
+    
+    def getRecords(self,number,start=0):
+        try:
+            try:
+                lines = []
+                if(self.file):
+                    self.close()
+                self.file=self.__open('rb')
+                lines = self.file.readlines()
+                self.close()
+                lines =lines[start:(start+number)]
+                return lines
+            except:
+                lines=[]
+        finally:
+            self.close()
+            return lines
+    
+    def deleteRecords(self,number,start=0):
+        try:
+            try:
+                success=-1
+                if(self.file):
+                    self.close()
+                self.file=self.__open('rb')
+                lines = self.file.readlines()
+                self.close()
+                lines =lines[0:start] + lines[(start+number):]
+                self.file= self.__open('wb')
+                self.file.writelines(lines)
+                self.file.flush()
+                self.close()
+                self.file = None
+                success=1
+            except:
+                pass
+        finally:
+            self.close()
+            return success
+    
+    def close(self):
+        try:
+            if(self.file):
+                self.file.close()
+            self.file=None
+        except:
+            pass
+        
+    def __shouldRollover(self, msg):
+        if(self.file):
+            if (self.__file_size() + len(msg) >= self.maxBytes):
+                return 1 
+        return 0
+
+    def __doRollover(self):
+        if(self.file):
+            self.close()
+            self.file= self.__open('wb')
+            
+    def __doFifoRollover(self,msg):
+        try:
+            if(self.file):
+                fileSize = self.__file_size()
+                lenMsg = len(msg)
+                self.close()
+                self.file=self.__open('rb')
+                lines = self.file.readlines()
+                while(fileSize + lenMsg >= self.maxBytes):
+                    fileSize=fileSize - len(lines[0])
+                    lines.pop(0)
+                lines.append(msg)
+                self.close()
+                self.file= self.__open('wb')
+                self.file.writelines(lines)
+                self.file.flush()
+                self.close()
+                self.file = None
+        except:
+            self.close()
+            
+    def __open(self, mode):
+        self.file = open(self.baseFilename, mode)
+        return self.file
+    
+    def __file_size(self):
+        self.file.seek(0, 2)
+        return self.file.tell()
+    
 if  __name__ == "__main__":
     rc = start(sys.argv)
     sys.exit(rc)
