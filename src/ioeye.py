@@ -5,17 +5,23 @@ import serial
 import config
 import exceptions
 import thread
+import os
 
 SER =None
+GPIo =None
 InstamsgConnected =False
 def start(args):
     instaMsg = None
     try:
         try:
-            instaMsg=__Connect()
+            options={'logLevel':instamsg.INSTAMSG_LOG_LEVEL_DEBUG, 'enableSsl':config.SSL_ENABLED}
+            instaMsg = instamsg.InstaMsg(config.ClientId, config.AuthKey, __onConnect, __onDisConnect, __oneToOneMessageHandler, options)
+            instaMsg.start()
             while 1:
-                instaMsg.process()
-                SER.process()
+                if(SER is not None):
+                    SER.process()
+                if(GPIo is not None):
+                    GPIo.process()
                 time.sleep(10)
         except:
             print("Unknown Error in start: %s %s" %(str(sys.exc_info()[0]),str(sys.exc_info()[1])))
@@ -23,32 +29,50 @@ def start(args):
         if(instaMsg):
             instaMsg.close()
             instaMsg = None
-            
-def __Connect(): 
-    options={'logLevel':config.DEBUG_MODE, 'enableSsl':1}
-    return instamsg.InstaMsg(config.ClientId, config.AuthKey, __onConnect, __onDisConnect, __oneToOneMessageHandler, options)
+            GPIO.cleanup()  
             
 def __onConnect(instaMsg):
-    global SER ,InstamsgConnected
+    global SER ,InstamsgConnected,GPIo
     InstamsgConnected =True
     if (config.DEBUG_MODE): print "Client connected to Instamsg"
-    SER =Serial(instaMsg)
+    for topic in config.SUB_TOPICS:
+        __subscribe(instaMsg, topic, 1)
+    broker =Broker(instaMsg)
+    SER =Serial(instaMsg,broker)
+    GPIo = Gpio(instaMsg,broker)
     
 def __onDisConnect():
     global InstamsgConnected
     InstamsgConnected =False
     print "Client disconnected."
-#     __Connect()
       
 def __messageHandler(mqttMessage):
-        if(mqttMessage):
-           if(config.DEBUG_MODE):print "Received message %s" %str(mqttMessage.toString())
+    
+    if(mqttMessage and config.DEBUG_MODE):print "Received message %s" %str(mqttMessage.toString())
+    topic = mqttMessage.topic()
+    if(topic==config.REBOOT_TOPIC):
+        __rebootRaspberry()
         
 def __oneToOneMessageHandler(msg):
     if(msg):
         if (config.DEBUG_MODE): print "One to One Message received %s" % msg.toString()
         msgBytes = __unhexelify(msg.body())
         Serial.processCmd(msgBytes)
+        
+def __subscribe(instaMsg, topic, qos):
+    try:
+        def _resultHandler(result):
+            if (config.DEBUG_MODE): print "Subscribed to topic %s with qos %d" %(topic,qos)
+        instaMsg.subscribe(topic, qos, __messageHandler, _resultHandler)
+    except Exception, e:
+        print str(e)
+        
+def __rebootRaspberry():
+    try:
+        if (config.DEBUG_MODE): print 'Rebooting Raspberry Pi'
+        os.system("reboot")
+    except Exception, e:
+        print str(e)
         
 def __unhexelify(data):
         a = []
@@ -81,7 +105,7 @@ class Serial:
     STOPBITS  = (serial.STOPBITS_ONE, serial.STOPBITS_ONE_POINT_FIVE, serial.STOPBITS_TWO)
     FLOWCONTROL=(True,False)
     
-    def __init__(self, instamsg=None):
+    def __init__(self, instamsg=None,broker = None):
         settings = config.serial_port
         self.portId=str(settings.get('port'))
         self.timeout = int(settings.get('timeout'))*10
@@ -91,12 +115,12 @@ class Serial:
         self.commandlist = settings.get('command_list')
         self.pollingRetry = self.__getPollingRetry()
         self.instamsg =instamsg
+        self.broker =broker
         instamsg.subscribe(self.portId,1, self.processCmd, self.subscribehandler)
         self.flowControl = self.__getFlowControl()
         self.port = self.__configurePort(settings)
         self.lock = thread.allocate_lock()
         self.address =config.ClientId
-        self.dataLogger = self.__setDataLogger()
 #         if (config.DEBUG_MODE):
 #                 debugLogger =self.__setDebugLogger()
 
@@ -104,7 +128,7 @@ class Serial:
         dataList = []
         try:
             if self.port:
-                self.__publishLogData()
+                self.broker._publishLogData()
                 if (self.commandlist):
                     for cmd in self.commandlist:
                         try:
@@ -112,7 +136,7 @@ class Serial:
                             if(data):
                                 if (config.DEBUG_MODE):
                                     print("Serial Processor: Read serial data: %s" % data)
-                                dataList.append([self.getTimeAndOffset(),str(cmd[0]) + str(data)])
+                                dataList.append([self.broker.getTimeAndOffset(),str(cmd[0]) + str(data)])
                         except:
                             pass
             if dataList:
@@ -137,15 +161,6 @@ class Serial:
         except:
             if (config.DEBUG_MODE): print('Serial::  subscribe to serial port  ')
            
-    def publishhandler(self,result):
-        try:
-            if (config.DEBUG_MODE): 
-                if(result.failed()):
-                    print('Serial:: Unable to publish to client due to  [%s] '%str(result.cause()))
-                else: print('Serial::data publish to client   [%s] '%str(config.ClientId))
-        except Exception, e:
-            if (config.DEBUG_MODE): print('Serial:: Unexpected error in processing publishhandler %s' %str(e))
-            
     def read(self, size=1):
         if self.port is None: raise error('Port not open')
         timeout = time.time() + self.timeout
@@ -199,19 +214,6 @@ class Serial:
                     print("Serial Processor: Serial port error: " %(str(sys.exc_info()[0]), str(sys.exc_info()[1])))    
         return data
     
-    def __publishLogData(self):
-        try:
-            self.lock.acquire()
-            if(InstamsgConnected):
-                if(self.dataLogger and self.dataLogger.shouldUpload()):
-                    if (config.DEBUG_MODE):
-                        print("Sending log data to instamsg")
-                    self.__processDataLogs()
-        except:
-            if (config.DEBUG_MODE):
-                print("Unknown Error in process: %s %s" % (str(sys.exc_info()[0]), str(sys.exc_info()[1])))
-        finally:
-            self.lock.release()
         
     def __configurePort(self,settings):
         try:
@@ -267,72 +269,16 @@ class Serial:
                         if(log): 
                             data = self.__hexlify(datalist[1])
                         else: data = datalist[1]
-                        self.__publishDataString(address, data, datalist[0], log)
+                        self.broker._forward_data_string(address, data, datalist[0], log)
                         i = i + 1
                     except:
-                        print('%s Serial:: Unexpected error in publish. %s %s' % (self.name, str(sys.exc_info()[0]), str(sys.exc_info()[1])))
+                        print('Serial:: Unexpected error in publish. %s %s' % (str(sys.exc_info()[0]), str(sys.exc_info()[1])))
         except:
             pass
         finally:
             self.lock.release()
             return i
-        
-    def __publishDataString(self, address, data, time=None, log=1):
-        if(log):
-            if(not time):
-                time = self.getTimeAndOffset()
-            data = '<?xml version="1.0"?><datas>' + "<data_node><manufacturer>" + config.MANUFACTURER + "</manufacturer><data>" + data + "</data>" + \
-            "<id>" + address + "</id><time>" + time[0] + "</time><offset>" + time[1] + "</offset></data_node>" + '</datas>'
-        if(log or log is None):
-            data = '%08d' % (len(data)) + data
-        try:
-            self.instamsg.publish(config.PubTopic, data, 2, 0, self.publishhandler)
-            if (config.DEBUG_MODE):
-                print("Serial: TCP data sent: %s" %data)
-        except Exception, e:
-            if(log and self.dataLogger):
-                self.dataLogger.write(data) 
-                if (config.DEBUG_MODE):
-                    print("Serial: TCP publisher data send failed. Logged it.")
-            raise Exception(str(e))
-            
-     
-    def __processDataLogs(self):
-        try:
-            if(self.dataLogger):
-                datalist = self.dataLogger.getRecords(10)
-                i = 0
-                if(datalist):
-                    for data in datalist:
-                        if ((data.find('<?xml version="1.0"?>') > 0)):
-                            if (config.DEBUG_MODE):
-                                print("Serial: Processing log data %s" %str(data))
-                            self.instamsg.publish(config.PubTopic, data, 2, 0, self.publishhandler)
-#                             if(not self.publish([[None, data.strip()]], None, 0)):
-#                                 break
-                        i = i + 1
-                else:
-                    if (config.DEBUG_MODE):
-                        print("Serial: No data logs to process..." )            
-                if(i > 0):
-                    if (config.DEBUG_MODE):
-                        print(" Serial: %d data logs sent to server..." % i)
-                    resp = self.dataLogger.deleteRecords(i) 
-                    if (config.DEBUG_MODE):
-                        if(resp == 1):
-                            print("Serial: Deleted %d data logs sent to server." % i)
-                        else:
-                            print("Serial: Error deleting %d data logs sent to server." % i)
-        except:
-            if (config.DEBUG_MODE):
-                print(':: Unexpected error in processing data logs. %s %s' % (str(sys.exc_info()[0]), str(sys.exc_info()[1])))
-               
-    def getTimeAndOffset(self):
-        try:
-            return (time.strftime("%Y%m%d") + "x" + time.strftime("%H%M%S%z")).split('+')
-        except Exception, e:
-            raise error('Time:: Unable to parse time.')
-        
+             
     
     def __hexlify(self,data):
         a = []
@@ -340,42 +286,7 @@ class Serial:
             a.append("%02X" % (ord(x)))
         return ''.join(a)
     
-    def __setDataLogger(self):
-        if(config.ENABLE_DATA_LOGGING):
-            if (config.DEBUG_MODE):
-                print('Raspberrypi:: Setting up data logger...')
-            mb=config.MAX_DATA_LOG_SIZE
-            if(mb > 256000 and mb < 1024):
-                mb=1024 
-            fh = FileHandler('data.log', maxBytes=mb,timeStamp=0, rotate=0)
-            return Logger(fh,int(config.DATA_LOG_UPLOAD_INTERVAL))
     
-    def __setDebugLogger(self):
-        try:
-            if(config.LOG_TO =='FILE'):
-                mb=config.MAX_LOG_SIZE
-                if(mb > 256000 and mb < 1024):
-                    mb=1024  
-                handler = FileHandler('system.log', maxBytes=mb)   
-                debugLogger=sys.stdout = sys.stderr = Logger(handler)
-            elif(config.LOG_TO =='SER'):
-                handler = SerialHandler()   
-                debugLogger = sys.stdout = sys.stderr = Logger(handler)
-            return debugLogger
-        except:
-            if (config.DEBUG_MODE):
-                error = 'Raspberrypi:: : Unable to set debug logger. Continuing without it...'
-                if(config.LOG_TO =='SER'):
-                    print(error) 
-                else:self.__bootLogger(error)
-            
-    def __bootLogger(self,msg):
-#This works while the modules are being loaded
-        try:
-            f = open('error.log', 'ab')
-            f.write(msg + '\r\n')
-        finally:
-            f.close()
             
 class Logger:
     
@@ -558,7 +469,234 @@ class FileHandler:
     def __file_size(self):
         self.file.seek(0, 2)
         return self.file.tell()
+  
+import RPi.GPIO as GPIO  
+
+class Gpio:
+    def __init__(self, instamsg=None,broker = None):
+        self.instamsg = instamsg
+        self.broker =broker
+        self.address=config.ClientId
+        self.__configure_gpio_ports()
+
+    def __my_callback(self):
+        pass
+
+    def __getDirection(self,port,direction):
+        if(direction=='DI'):
+            return GPIO.IN
+        elif (direction=='DO'):
+            return GPIO.OUT
+        else: raise ValueError, "Unrecognized GPIO direction %s for pin %d." % (direction, port)
+              
+              
+    def __configure_gpio_ports(self):
+        try:
+            for port in config.GPIO_PORTS:
+                pinNumber = port.get('pin_number')
+                direction = self.__getDirection(port.get('pin_number'),port.get('direction'))
+                # set up the GPIO channels - one input and one output
+                GPIO.setmode(config.GPIO_MODE)
+                GPIO.setup(pinNumber,direction)
+                GPIO.add_event_detect(pinNumber,GPIO.BOTH,callback=self.__my_callback)
+        except Exception ,e :
+            print str(e)
+            print"Gpio:: Unexpected error setting GPIO ports pin number: %d and direction %s." % (pinNumber,direction)
     
+    def process(self):
+        self.broker._publishLogData()
+        data_list = list()
+        data = 'GPIO'
+        if self.address:
+            try:
+                    for ports in config.GPIO_PORTS:
+                        pinNumber = ports.get('pin_number')
+                        portNumber = str(pinNumber)
+                        direction = ports.get('direction')
+                        if (len(portNumber) == 1):
+                            portNumber = '0' + portNumber
+                        if direction == 'DO': 
+                            data = data + ',DO' + portNumber + str(self.input(pinNumber))
+                        elif direction == 'DI': 
+                            data = data + ',DI' + portNumber + str(self.input(pinNumber))
+                        else:                     
+                            raise ValueError, "Unrecognized GPIO mode [%d] for pin [%d]." % (direction, pinNumber)
+                    data_list.append(data)
+                    data = self.process_data(self.address, data, data_list)
+            except Exception, e:
+                if (config.DEBUG_MODE):
+                    print ("GPIO Processor: Unexpected error: %s" % str(e))
+#                     gateway.LOGGER.error("GPIO Processor: Unexpected error: %s" % str(e))
+    def process_data(self, address, data, sample_data_list):
+        if (sample_data_list and len(sample_data_list) is not 0):
+            forward_data = self.forward_data(address, sample_data_list)
+            data = data + forward_data
+        return data 
+    
+    def forward_data(self, address, data_list):
+        for data in data_list:
+            self.broker._forward_data_string(address, data, None,1)
+        
+        return ''
+    
+    def forward_data_string(self, address, data, offset):
+        if (data):
+            data = self.format_data(address, data, offset)
+            try:
+                data = '<?xml version="1.0"?><datas>' + data + '</datas>'
+                #print 'TCPForwarder;forwarding data ' + data
+                data = self.header_size(data) + data
+                self.broker._publishDataString(self, data,log=1)
+                if (config.DEBUG_MODE):
+                    print("GPIO: Data sent: %s" % data)
+            except Exception, e:
+                if (config.DEBUG_MODE):
+                    print("GPIO forward_data_string error")
+                raise Exception(str(e))
+     
+    def header_size(self, data):
+        length = str(len(data))
+        header_size = length.zfill(8)
+        return header_size
+           
+    def input(self,pinNumber):
+        # input from GPIO7
+        return GPIO.input(pinNumber)
+     
+    def output(self,pinNumber,msg): 
+        # output to GPIO8
+        GPIO.output(pinNumber, msg)
+
+class Broker :
+    
+    def __init__(self, instamsg=None):
+        self.instamsg = instamsg
+        self.lock = thread.allocate_lock()
+        self.dataLogger = self.__setDataLogger()
+    
+    def _publishDataString(self, data,log=1):
+        try:
+            self.instamsg.publish(config.PubTopic, data, 2, 0, self.__publishhandler)
+            if (config.DEBUG_MODE):
+                print("Broker: TCP data sent: %s" %data)
+        except Exception, e:
+            if(log and self.dataLogger):
+                self.dataLogger.write(data) 
+                if (config.DEBUG_MODE):
+                    print("Broker: TCP publisher data send failed. Logged it.")
+            raise Exception(str(e))
+        
+    def __publishhandler(self,result):
+        try:
+            if (config.DEBUG_MODE): 
+                if(result.failed()):
+                    print('Serial:: Unable to publish to client due to  [%s] '%str(result.cause()))
+                else: print('Serial::data publish to client   [%s] '%str(config.ClientId))
+        except Exception, e:
+            if (config.DEBUG_MODE): print('Serial:: Unexpected error in processing publishhandler %s' %str(e))
+            
+    def __setDataLogger(self):
+        if(config.ENABLE_DATA_LOGGING):
+            if (config.DEBUG_MODE):
+                print('Raspberrypi:: Setting up data logger...')
+            mb=config.MAX_DATA_LOG_SIZE
+            if(mb > 256000 and mb < 1024):
+                mb=1024 
+            fh = FileHandler('data.log', maxBytes=mb,timeStamp=0, rotate=0)
+            return Logger(fh,int(config.DATA_LOG_UPLOAD_INTERVAL))
+
+    def _forward_data_string(self, address, data, time=None, log=1):
+        try:
+            if(log):
+                if(not time):
+                    time = self.getTimeAndOffset()
+                data = '<?xml version="1.0"?><datas>' + "<data_node><manufacturer>" + config.MANUFACTURER + "</manufacturer><data>" + data + "</data>" + \
+                "<id>" + address + "</id><time>" + time[0] + "</time><offset>" + time[1] + "</offset></data_node>" + '</datas>'
+            if(log or log is None):
+                data = '%08d' % (len(data)) + data
+            self._publishDataString(data,log)
+        except Exception, e:
+            if (config.DEBUG_MODE):
+                print("Serial: Error in formating data string..")
+                
+    def getTimeAndOffset(self):
+        try:
+            return (time.strftime("%Y%m%d") + "x" + time.strftime("%H%M%S%z")).split('+')
+        except Exception, e:
+            raise error('Time:: Unable to parse time.')
+        
+    def _setDebugLogger(self):
+        try:
+            if(config.LOG_TO =='FILE'):
+                mb=config.MAX_LOG_SIZE
+                if(mb > 256000 and mb < 1024):
+                    mb=1024  
+                handler = FileHandler('system.log', maxBytes=mb)   
+                debugLogger=sys.stdout = sys.stderr = Logger(handler)
+            elif(config.LOG_TO =='SER'):
+                handler = SerialHandler()   
+                debugLogger = sys.stdout = sys.stderr = Logger(handler)
+            return debugLogger
+        except:
+            if (config.DEBUG_MODE):
+                error = 'Raspberrypi:: : Unable to set debug logger. Continuing without it...'
+                if(config.LOG_TO =='SER'):
+                    print(error) 
+                else:self.__bootLogger(error)
+            
+    def _bootLogger(self,msg):
+#This works while the modules are being loaded
+        try:
+            f = open('error.log', 'ab')
+            f.write(msg + '\r\n')
+        finally:
+            f.close()
+    
+    def _publishLogData(self):
+        try:
+            self.lock.acquire()
+            if(InstamsgConnected):
+                if(self.dataLogger and self.dataLogger.shouldUpload()):
+                    if (config.DEBUG_MODE):
+                        print("Sending log data to instamsg")
+                    self.__processDataLogs()
+        except:
+            if (config.DEBUG_MODE):
+                print("Unknown Error in process: %s %s" % (str(sys.exc_info()[0]), str(sys.exc_info()[1])))
+        finally:
+            self.lock.release()
+            
+    def __processDataLogs(self):
+        try:
+            if(self.dataLogger):
+                datalist = self.dataLogger.getRecords(10)
+                i = 0
+                if(datalist):
+                    for data in datalist:
+                        if ((data.find('<?xml version="1.0"?>') > 0)):
+                            if (config.DEBUG_MODE):
+                                print("Broker: Processing log data %s" %str(data))
+                            self.instamsg.publish(config.PubTopic, data, 2, 0, self.__publishhandler)
+#                             if(not self.publish([[None, data.strip()]], None, 0)):
+#                                 break
+                        i = i + 1
+                else:
+                    if (config.DEBUG_MODE):
+                        print("Broker: No data logs to process..." )            
+                if(i > 0):
+                    if (config.DEBUG_MODE):
+                        print(" Broker: %d data logs sent to server..." % i)
+                    resp = self.dataLogger.deleteRecords(i) 
+                    if (config.DEBUG_MODE):
+                        if(resp == 1):
+                            print("Broker: Deleted %d data logs sent to server." % i)
+                        else:
+                            print("Broker: Error deleting %d data logs sent to server." % i)
+        except:
+            if (config.DEBUG_MODE):
+                print(':: Unexpected error in processing data logs. %s %s' % (str(sys.exc_info()[0]), str(sys.exc_info()[1])))
+            
+                               
 if  __name__ == "__main__":
     rc = start(sys.argv)
     sys.exit(rc)
