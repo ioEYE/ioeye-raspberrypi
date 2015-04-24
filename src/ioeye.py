@@ -38,8 +38,10 @@ def __onConnect(instaMsg):
     for topic in config.SUB_TOPICS:
         __subscribe(instaMsg, topic, 1)
     broker =Broker(instaMsg)
-    SER =Serial(instaMsg,broker)
-    GPIo = Gpio(instaMsg,broker)
+    if(config.SERIAL_PORTS_ENABLED):
+        SER =Serial(instaMsg,broker)
+    if(config.GPIO_PORTS_ENABLED):
+        GPIo = Gpio(instaMsg,broker)
     
 def __onDisConnect():
     global InstamsgConnected
@@ -52,6 +54,8 @@ def __messageHandler(mqttMessage):
     topic = mqttMessage.topic()
     if(topic==config.REBOOT_TOPIC):
         __rebootRaspberry()
+    if(topic==config.GPIO_TOPIC):
+        GPIo._handleMsg(mqttMessage)
         
 def __oneToOneMessageHandler(msg):
     if(msg):
@@ -479,9 +483,13 @@ class Gpio:
         self.address=config.ClientId
         self.__configure_gpio_ports()
 
-    def __my_callback(self):
-        pass
-
+    def _handleMsg(self,message):
+        if(message):
+            if (config.DEBUG_MODE): print "Gpio Message received %s" % message.toString()
+            msg = message.body()
+            msgList= msg.split('/')
+            GPIO.output(int(msgList[0]),(int(msgList[1])))
+            
     def __getDirection(self,port,direction):
         if(direction=='DI'):
             return GPIO.IN
@@ -495,10 +503,8 @@ class Gpio:
             for port in config.GPIO_PORTS:
                 pinNumber = port.get('pin_number')
                 direction = self.__getDirection(port.get('pin_number'),port.get('direction'))
-                # set up the GPIO channels - one input and one output
                 GPIO.setmode(config.GPIO_MODE)
                 GPIO.setup(pinNumber,direction)
-                GPIO.add_event_detect(pinNumber,GPIO.BOTH,callback=self.__my_callback)
         except Exception ,e :
             print str(e)
             print"Gpio:: Unexpected error setting GPIO ports pin number: %d and direction %s." % (pinNumber,direction)
@@ -515,10 +521,10 @@ class Gpio:
                         direction = ports.get('direction')
                         if (len(portNumber) == 1):
                             portNumber = '0' + portNumber
-                        if direction == 'DO': 
-                            data = data + ',DO' + portNumber + str(self.input(pinNumber))
+                        if direction == 'DO':
+                            data = data + ',DO' + portNumber + str(GPIO.input(pinNumber))
                         elif direction == 'DI': 
-                            data = data + ',DI' + portNumber + str(self.input(pinNumber))
+                            data = data + ',DI' + portNumber + str(GPIO.input(pinNumber))
                         else:                     
                             raise ValueError, "Unrecognized GPIO mode [%d] for pin [%d]." % (direction, pinNumber)
                     data_list.append(data)
