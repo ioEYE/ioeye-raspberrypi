@@ -15,7 +15,7 @@ def start(args):
     try:
         try:
             options={'logLevel':instamsg.INSTAMSG_LOG_LEVEL_DEBUG, 'enableSsl':config.SSL_ENABLED}
-            instaMsg = instamsg.InstaMsg(config.ClientId, config.AuthKey, __onConnect, __onDisConnect, __oneToOneMessageHandler, options)
+            instaMsg = instamsg.InstaMsg(config.ClientId, config.AuthToken, __onConnect, __onDisConnect, __oneToOneMessageHandler, options)
             instaMsg.start()
             while 1:
                 if(SER is not None):

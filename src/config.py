@@ -4,7 +4,7 @@ import RPi.GPIO as GPIO
 ###TESTED FOR FIRMWARE 10.00.xx4 OF GL865
 MANUFACTURER='Raspberrypi'
 
-#################Basic logging settings for gateway######################
+#################Basic logging settings######################
 DEBUG_MODE = 1 #IMP!!! Disable this on production 0/1
 LOG_TO ='FILE' #[FILE,SER]. SER is Serial port. '' for Default behaviour.
 MAX_LOG_SIZE = 10240 # in bytes 1024-256000 Bytes. Only valid for file logging.
@@ -12,14 +12,14 @@ MAX_LOG_SIZE = 10240 # in bytes 1024-256000 Bytes. Only valid for file logging.
 ENABLE_DATA_LOGGING = 1 #1 to enable logging in case of no Server connection. 0 to Disable
 DATA_LOG_UPLOAD_INTERVAL =300 #>0Seconds 
 MAX_DATA_LOG_SIZE=10240 # in bytes 1024-256000 Bytes.
+
 ###############Serial Port Settings########################
 SERIAL_PORTS_ENABLED = 1 # 
 SERIAL_POLLING_RETRY = 0 #[0-2]No of times to retry polling if no response or error response on polling port
 SERIAL_POLLING_INTERVAL = 60 # In seconds. Should be greater than 9
 serial_cmd_list = []
-#serial_cmd_list.append(['\x00\x03', 'This is a test...'])
-serial_cmd_list.append(['\x00\x00', '\x01\x03\x00\x00\x00\x0C\x45\xCF'])
-serial_cmd_list.append(['\x00\x14', '\x01\x03\x00\x14\x00\x0A\x85\xC9'])
+serial_cmd_list.append(['\x00\x00', '\x01\x03\x00\x00\x00\x0C\x45\xCF']) # Enter your serial commands
+serial_cmd_list.append(['\x00\x14', '\x01\x03\x00\x14\x00\x0A\x85\xC9']) # Enter your serial commands
  
 serial_port = {'port' : '/dev/ttyUSB0', #port number /dev/ttyUSB0 ,/dev/ttyUSB1...
                 'baudrate': 9600, #baud rate
@@ -33,25 +33,21 @@ serial_port = {'port' : '/dev/ttyUSB0', #port number /dev/ttyUSB0 ,/dev/ttyUSB1.
                 'packet_size': 2000, #Max packet size.
                 'command_list': serial_cmd_list}
 
+###############GPIO Port Settings########################
+GPIO_PORTS_ENABLED = 1
+GPIO_MODE=GPIO.BCM
+GPIO_PORTS = [dict({'pin_number': 21,'direction': 'DO'})]  # direction Possible values: DO
+
 ####### InstaMsg Client Details ###########
-ClientId = "9533d950-c88b-11e4-bf22-bc764e102b63"
-PubTopic ="abc" 
-# ClientId = "62513710-86c0-11e4-9dcf-a41f726775dd"
-# PubTopic ="92b58550-86c0-11e4-9dcf-a41f726775dd" 
-AuthKey = "AVE5DgIGycSjoiER8k33sIQdPYbJqEe3u"  
+ClientId = "your_client_id" # Enter your client_id here
+AuthToken = "your_client_auth_token"  # Enter your client_auth_token here
+SSL_ENABLED = 0 # or 1 for sending data over ssl
 
 ############### InstaMsg Publish/Subscribe Settings ##############
-TOPIC="instamsg/webhook"
 QOS=1
-SSL_ENABLED = 0 # or 1 for sending data over ssl
 SUB_TOPICS = []
+# this is reserver sub topics, you don't need to change this, But you can add as many sub topics as you want
 REBOOT_TOPIC = ClientId + "/system/reboot"
 GPIO_TOPIC = ClientId + "/gpio"
 SUB_TOPICS.append(REBOOT_TOPIC)
 SUB_TOPICS.append(GPIO_TOPIC)
-
-###############GPIO Port Settings########################
-# direction Possible values: DO
-GPIO_PORTS_ENABLED = 1
-GPIO_MODE=GPIO.BCM
-GPIO_PORTS = [dict({'pin_number': 21,'direction': 'DO'})] 
