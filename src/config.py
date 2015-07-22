@@ -3,6 +3,9 @@ import serial
 import RPi.GPIO as GPIO  
 ###TESTED FOR FIRMWARE 10.00.xx4 OF GL865
 MANUFACTURER='Raspberrypi'
+IMEI=''
+MODEL='B+'
+FIRMWARE=''
 
 #################Basic logging settings######################
 DEBUG_MODE = 1 #IMP!!! Disable this on production 0/1
@@ -47,7 +50,17 @@ SSL_ENABLED = 0 # or 1 for sending data over ssl
 QOS=1
 SUB_TOPICS = []
 # this is reserver sub topics, you don't need to change this, But you can add as many sub topics as you want
-REBOOT_TOPIC = ClientId + "/system/reboot"
-GPIO_TOPIC = ClientId + "/gpio"
+REBOOT_TOPIC = "instamsg/clients/" + ClientId + "/system/reboot"
+GPIO_TOPIC = "instamsg/clients/" + ClientId + "/gpio"
 SUB_TOPICS.append(REBOOT_TOPIC)
 SUB_TOPICS.append(GPIO_TOPIC)
+
+SUB_TOPICS = []
+
+WEBHOOK_TOPIC = "instamsg/webhook"
+
+
+CONNECTIVITY ="wlan0"
+########### Static Topics used for internal use##############
+METADATA = "instamsg/client/metadata"
+SESSION_DATA = "instamsg/client/session"

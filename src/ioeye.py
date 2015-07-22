@@ -6,6 +6,9 @@ import config
 import exceptions
 import thread
 import os
+import socket
+import fcntl
+import struct
 
 SER =None
 GPIo =None
@@ -31,6 +34,18 @@ def start(args):
             instaMsg = None
             GPIO.cleanup()  
             
+def __getserial():
+    cpuserial = "0000000000000000"
+    try:
+        f = open('/proc/cpuinfo','r')
+        for line in f:
+            if line[0:6]=='Serial':
+                cpuserial = line[10:26]
+        f.close()
+    except:
+        cpuserial = config.IMEI
+    return cpuserial
+            
 def __onConnect(instaMsg):
     global SER ,InstamsgConnected,GPIo
     InstamsgConnected =True
@@ -38,15 +53,37 @@ def __onConnect(instaMsg):
     for topic in config.SUB_TOPICS:
         __subscribe(instaMsg, topic, 1)
     broker =Broker(instaMsg)
+    address = __getserial()
     if(config.SERIAL_PORTS_ENABLED):
-        SER =Serial(instaMsg,broker)
+        SER =Serial(instaMsg,broker,address)
     if(config.GPIO_PORTS_ENABLED):
-        GPIo = Gpio(instaMsg,broker)
+        GPIo = Gpio(instaMsg,broker,address)
+    _sendClientSessionData(instaMsg)
+    _sendClientMetadata(instaMsg)
+
+def _sendClientSessionData(instaMsg):
+    ipAddress = __get_ip_address(config.CONNECTIVITY)
+    session = {'method':config.CONNECTIVITY, 'ip_address':ipAddress, 'antina_status': '', 'signal_strength': ''}
+    __publishMessage(instaMsg, config.SESSION_DATA, str(session), 1, 0)
+
+def _sendClientMetadata(instaMsg):
+    imei = __getserial()
+    metadata = {'imei': imei,'serial_number': imei, 'model': config.MODEL,
+                'firmware_version':config.FIRMWARE, 'manufacturer':config.MANUFACTURER}
+    __publishMessage(instaMsg, config.METADATA, str(metadata), 1, 0) 
     
 def __onDisConnect():
     global InstamsgConnected
     InstamsgConnected =False
     print "Client disconnected."
+    
+def __publishMessage(instaMsg, topic, msg, qos, dup):
+    try:
+        def _resultHandler(result):
+            print "Published message %s to topic %s with qos %d" % (msg, topic, qos)
+        instaMsg.publish(topic, msg, qos, dup, _resultHandler)
+    except Exception, e:
+        print str(e)
       
 def __messageHandler(mqttMessage):
     
@@ -84,7 +121,15 @@ def __unhexelify(data):
             a.append(chr(int(data[i:i + 2], 16)))   
         return ''.join(a) 
 
-
+def __get_ip_address(ifname):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    return socket.inet_ntoa(fcntl.ioctl(
+        s.fileno(),
+        0x8915,  # SIOCGIFADDR
+        struct.pack('256s', ifname[:15])
+    )[20:24])
+    
+    
 class SerialError(exceptions.IOError):
     def __init__(self, value=''):
         self.value = value
@@ -109,7 +154,7 @@ class Serial:
     STOPBITS  = (serial.STOPBITS_ONE, serial.STOPBITS_ONE_POINT_FIVE, serial.STOPBITS_TWO)
     FLOWCONTROL=(True,False)
     
-    def __init__(self, instamsg=None,broker = None):
+    def __init__(self, instamsg=None,broker = None,address = None):
         settings = config.serial_port
         self.portId=str(settings.get('port'))
         self.timeout = int(settings.get('timeout'))*10
@@ -124,7 +169,7 @@ class Serial:
         self.flowControl = self.__getFlowControl()
         self.port = self.__configurePort(settings)
         self.lock = thread.allocate_lock()
-        self.address =config.ClientId
+        self.address =address
 #         if (config.DEBUG_MODE):
 #                 debugLogger =self.__setDebugLogger()
 
@@ -477,10 +522,10 @@ class FileHandler:
 import RPi.GPIO as GPIO  
 
 class Gpio:
-    def __init__(self, instamsg=None,broker = None):
+    def __init__(self, instamsg=None,broker = None,address = None):
         self.instamsg = instamsg
         self.broker =broker
-        self.address=config.ClientId
+        self.address=address
         self.__configure_gpio_ports()
 
     def _handleMsg(self,message):
@@ -582,7 +627,7 @@ class Broker :
     
     def _publishDataString(self, data,log=1):
         try:
-            self.instamsg.publish(config.PubTopic, data, 2, 0, self.__publishhandler)
+            self.instamsg.publish(config.WEBHOOK_TOPIC, data, 2, 0, self.__publishhandler)
             if (config.DEBUG_MODE):
                 print("Broker: TCP data sent: %s" %data)
         except Exception, e:
@@ -597,7 +642,7 @@ class Broker :
             if (config.DEBUG_MODE): 
                 if(result.failed()):
                     print('Serial:: Unable to publish to client due to  [%s] '%str(result.cause()))
-                else: print('Serial::data publish to client   [%s] '%str(config.ClientId))
+                else: print('Serial::data publish to client   [%s] '%str(config.IMEI))
         except Exception, e:
             if (config.DEBUG_MODE): print('Serial:: Unexpected error in processing publishhandler %s' %str(e))
             
@@ -682,7 +727,7 @@ class Broker :
                         if ((data.find('<?xml version="1.0"?>') > 0)):
                             if (config.DEBUG_MODE):
                                 print("Broker: Processing log data %s" %str(data))
-                            self.instamsg.publish(config.PubTopic, data, 2, 0, self.__publishhandler)
+                            self.instamsg.publish(config.WEBHOOK_TOPIC, data, 2, 0, self.__publishhandler)
 #                             if(not self.publish([[None, data.strip()]], None, 0)):
 #                                 break
                         i = i + 1
