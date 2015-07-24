@@ -58,19 +58,6 @@ def __onConnect(instaMsg):
         SER =Serial(instaMsg,broker,address)
     if(config.GPIO_PORTS_ENABLED):
         GPIo = Gpio(instaMsg,broker,address)
-    _sendClientSessionData(instaMsg)
-    _sendClientMetadata(instaMsg)
-
-def _sendClientSessionData(instaMsg):
-    ipAddress = __get_ip_address(config.CONNECTIVITY)
-    session = {'method':config.CONNECTIVITY, 'ip_address':ipAddress, 'antina_status': '', 'signal_strength': ''}
-    __publishMessage(instaMsg, config.SESSION_DATA, str(session), 1, 0)
-
-def _sendClientMetadata(instaMsg):
-    imei = __getserial()
-    metadata = {'imei': imei,'serial_number': imei, 'model': config.MODEL,
-                'firmware_version':config.FIRMWARE, 'manufacturer':config.MANUFACTURER}
-    __publishMessage(instaMsg, config.METADATA, str(metadata), 1, 0) 
     
 def __onDisConnect():
     global InstamsgConnected
@@ -89,8 +76,6 @@ def __messageHandler(mqttMessage):
     
     if(mqttMessage and config.DEBUG_MODE):print "Received message %s" %str(mqttMessage.toString())
     topic = mqttMessage.topic()
-    if(topic==config.REBOOT_TOPIC):
-        __rebootRaspberry()
     if(topic==config.GPIO_TOPIC):
         GPIo._handleMsg(mqttMessage)
         
@@ -108,28 +93,12 @@ def __subscribe(instaMsg, topic, qos):
     except Exception, e:
         print str(e)
         
-def __rebootRaspberry():
-    try:
-        if (config.DEBUG_MODE): print 'Rebooting Raspberry Pi'
-        os.system("reboot")
-    except Exception, e:
-        print str(e)
-        
 def __unhexelify(data):
         a = []
         for i in range(0, len(data), 2):
             a.append(chr(int(data[i:i + 2], 16)))   
         return ''.join(a) 
 
-def __get_ip_address(ifname):
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    return socket.inet_ntoa(fcntl.ioctl(
-        s.fileno(),
-        0x8915,  # SIOCGIFADDR
-        struct.pack('256s', ifname[:15])
-    )[20:24])
-    
-    
 class SerialError(exceptions.IOError):
     def __init__(self, value=''):
         self.value = value

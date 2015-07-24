@@ -18,7 +18,7 @@ MAX_DATA_LOG_SIZE=10240 # in bytes 1024-256000 Bytes.
 
 ###############Serial Port Settings########################
 SERIAL_PORTS_ENABLED = 1 # 
-SERIAL_POLLING_RETRY = 0 #[0-2]No of times to retry polling if no response or error response on polling port
+SERIAL_POLLING_RETRY = 2 #[0-2]No of times to retry polling if no response or error response on polling port
 SERIAL_POLLING_INTERVAL = 60 # In seconds. Should be greater than 9
 serial_cmd_list = []
 serial_cmd_list.append(['\x00\x00', '\x01\x03\x00\x00\x00\x0C\x45\xCF']) # Enter your serial commands
@@ -33,7 +33,7 @@ serial_port = {'port' : '/dev/ttyUSB0', #port number /dev/ttyUSB0 ,/dev/ttyUSB1.
                 'writeTimeout':10, # Set a write timeout value.
                 'xonxoff':False, #enable software flow control 0,1
                 'rtscts':False, #enable RTS/CTS flow control 0,1
-                'packet_size': 2000, #Max packet size.
+                'packet_size': 3000, #Max packet size.
                 'command_list': serial_cmd_list}
 
 ###############GPIO Port Settings########################
@@ -50,17 +50,10 @@ SSL_ENABLED = 0 # or 1 for sending data over ssl
 QOS=1
 SUB_TOPICS = []
 # this is reserver sub topics, you don't need to change this, But you can add as many sub topics as you want
-REBOOT_TOPIC = "instamsg/clients/" + ClientId + "/system/reboot"
 GPIO_TOPIC = "instamsg/clients/" + ClientId + "/gpio"
-SUB_TOPICS.append(REBOOT_TOPIC)
 SUB_TOPICS.append(GPIO_TOPIC)
 
-SUB_TOPICS = []
+PUB_TOPICS = []
 
 WEBHOOK_TOPIC = "instamsg/webhook"
-
-
 CONNECTIVITY ="wlan0"
-########### Static Topics used for internal use##############
-METADATA = "instamsg/client/metadata"
-SESSION_DATA = "instamsg/client/session"
