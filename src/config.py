@@ -14,7 +14,7 @@ MAX_LOG_SIZE = 10240 # in bytes 1024-256000 Bytes. Only valid for file logging.
 #################Data Logger settings######################
 ENABLE_DATA_LOGGING = 1 #1 to enable logging in case of no Server connection. 0 to Disable
 DATA_LOG_UPLOAD_INTERVAL =300 #>0Seconds 
-MAX_DATA_LOG_SIZE=10240 # in bytes 1024-256000 Bytes.
+MAX_DATA_LOG_SIZE=110000 # in bytes 1024-256000 Bytes.
 
 ###############Serial Port Settings########################
 SERIAL_PORTS_ENABLED = 1 # 
@@ -34,6 +34,8 @@ serial_port = {'port' : '/dev/ttyUSB0', #port number /dev/ttyUSB0 ,/dev/ttyUSB1.
                 'xonxoff':False, #enable software flow control 0,1
                 'rtscts':False, #enable RTS/CTS flow control 0,1
                 'packet_size': 3000, #Max packet size.
+                'read_delay':0,
+                'write_delay':0,
                 'command_list': serial_cmd_list}
 
 ###############GPIO Port Settings########################
@@ -42,18 +44,18 @@ GPIO_MODE=GPIO.BCM
 GPIO_PORTS = [dict({'pin_number': 21,'direction': 'DO'})]  # direction Possible values: DO
 
 ####### InstaMsg Client Details ###########
-ClientId = "your_client_id" # Enter your client_id here
-AuthToken = "your_client_auth_token"  # Enter your client_auth_token here
+ClientId = "your client id" # Enter your client_id here
+AuthToken = "client auth token"  # Enter your client_auth_token here
 SSL_ENABLED = 0 # or 1 for sending data over ssl
 
 ############### InstaMsg Publish/Subscribe Settings ##############
 QOS=1
 SUB_TOPICS = []
-# this is reserver sub topics, you don't need to change this, But you can add as many sub topics as you want
+# this is reserved sub topics, you don't need to change this, But you can add as many sub topics as you want
 GPIO_TOPIC = "instamsg/clients/" + ClientId + "/gpio"
 SUB_TOPICS.append(GPIO_TOPIC)
 
 PUB_TOPICS = []
 
 WEBHOOK_TOPIC = "instamsg/webhook"
-CONNECTIVITY ="wlan0"
+CONNECTIVITY ="wlan0" # if connected by lan than use eth1
