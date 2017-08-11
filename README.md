@@ -1,3 +1,3 @@
 # ioeye-raspberrypi
 
-**Documentation:** [User Guide](https://github.com/ioEYE/ioeye-raspberrypi/wiki/IoEye-on-Raspberry_Pi)
+[User Guide](https://github.com/ioEYE/ioeye-raspberrypi/wiki/IoEye-on-Raspberry_Pi)
