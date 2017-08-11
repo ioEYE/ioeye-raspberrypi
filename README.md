@@ -1,3 +1,3 @@
 # ioeye-raspberrypi
 
-**Documentation:** [User Guide](https://github.com/InstaMsg/instamsg-c/wiki/IoEye-on-Raspberry_Pi)
+**Documentation:** [User Guide](https://github.com/ioEYE/ioeye-raspberrypi/wiki/IoEye-on-Raspberry_Pi)
