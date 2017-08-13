@@ -13,10 +13,10 @@ sudo chmod 777 "${HOME_DIRECTORY}/monitor.sh"
 sudo sed -i '/^[ :\t]*\/home\/sensegrow\/monitor.sh \&/d' /etc/rc.local
 sudo sed -i 's/^[ :\t]*exit 0/\/home\/sensegrow\/monitor.sh \&\nexit 0/g' /etc/rc.local
 
-sudo cp ../../sg_upgrade_try.sh "${HOME_DIRECTORY}"
+sudo cp sg_upgrade_try.sh "${HOME_DIRECTORY}"
 sudo chmod 777 "${HOME_DIRECTORY}/sg_upgrade_try.sh"
 
-sudo cp ../../sg_upgrade.sh "${HOME_DIRECTORY}"
+sudo cp sg_upgrade.sh "${HOME_DIRECTORY}"
 sudo chmod 777 "${HOME_DIRECTORY}/sg_upgrade.sh"
 
 sudo cp upgrade_params "${HOME_DIRECTORY}"
