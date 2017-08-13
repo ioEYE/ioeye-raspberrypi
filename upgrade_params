@@ -1,0 +1,8 @@
+HOME_DIRECTORY="/home/sensegrow"
+PLATFORM="http://0260b1be9a0d4c3515c2-970a230c3dade1e1f677b583f3dc944e.r18.cf2.rackcdn.com/pi/setup.zip"
+VERSION_URL="http://0260b1be9a0d4c3515c2-970a230c3dade1e1f677b583f3dc944e.r18.cf2.rackcdn.com/pi/version.txt"
+EXTRACT_COMMAND="unzip setup.zip -d ."
+REBOOT_COMMAND="/sbin/reboot"
+
+FIRST_PID=`ps -aux | grep -v grep | grep -v tail | grep sg_upgrade.sh`
+SECOND_PID=`ps -aux | grep -v grep | grep -v tail | grep sg_setup.sh`

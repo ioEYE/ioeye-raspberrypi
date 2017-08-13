@@ -1,0 +1,2 @@
+*/1 * * * * echo > /home/sensegrow/instamsg.log
+15  * * * * cd /home/sensegrow; /home/sensegrow/sg_upgrade_try.sh
