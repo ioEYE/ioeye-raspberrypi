@@ -29,6 +29,6 @@ sudo touch "${HOME_DIRECTORY}/data.txt"
 sudo chmod 777 "${HOME_DIRECTORY}/data.txt"
 
 sudo echo test > ${HOME_DIRECTORY}/prov.txt
-sudo echo 2 > ${HOME_DIRECTORY}/current_version
+sudo echo 3 > ${HOME_DIRECTORY}/current_version
 
 sudo crontab < cron
